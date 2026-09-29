@@ -1,0 +1,430 @@
+import { useEffect, useMemo, useState } from 'react';
+
+const emptyOverview = {
+  properties: [],
+  people: [],
+  keys: [],
+  activities: [],
+};
+
+const formatDate = (iso) =>
+  new Date(iso).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'short',
+  });
+
+const getPersonById = (people, id) => people.find((person) => person.id === id);
+const getPropertyById = (properties, id) => properties.find((property) => property.id === id);
+
+function App() {
+  const [overview, setOverview] = useState(emptyOverview);
+  const [propertyForm, setPropertyForm] = useState({ name: '', address: '' });
+  const [personForm, setPersonForm] = useState({ name: '', company: '' });
+  const [keyForm, setKeyForm] = useState({ keyTag: '', serialNumber: '', propertyId: '' });
+  const [checkoutForm, setCheckoutForm] = useState({ keyId: '', personId: '', notes: '' });
+  const [loading, setLoading] = useState(true);
+
+  const loadOverview = async () => {
+    try {
+      const response = await fetch('/api/overview');
+      const data = await response.json();
+      setOverview(data);
+      if (data.properties.length && !keyForm.propertyId) {
+        setKeyForm((current) => ({ ...current, propertyId: data.properties[0].id }));
+      }
+      if (data.keys.length && !checkoutForm.keyId) {
+        setCheckoutForm((current) => ({ ...current, keyId: data.keys[0].id }));
+      }
+    } catch (error) {
+      console.error('Error loading overview', error);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadOverview();
+  }, []);
+
+  const activeProperties = useMemo(
+    () => overview.properties.filter((property) => !property.archived),
+    [overview.properties]
+  );
+  const activePeople = useMemo(
+    () => overview.people.filter((person) => !person.archived),
+    [overview.people]
+  );
+  const activeKeys = useMemo(
+    () => overview.keys.filter((key) => !key.archived),
+    [overview.keys]
+  );
+
+  const handleAddProperty = async (event) => {
+    event.preventDefault();
+    if (!propertyForm.name || !propertyForm.address) return;
+
+    const response = await fetch('/api/properties', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(propertyForm),
+    });
+
+    if (response.ok) {
+      setPropertyForm({ name: '', address: '' });
+      loadOverview();
+    }
+  };
+
+  const handleAddPerson = async (event) => {
+    event.preventDefault();
+    if (!personForm.name) return;
+
+    const response = await fetch('/api/people', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(personForm),
+    });
+
+    if (response.ok) {
+      setPersonForm({ name: '', company: '' });
+      loadOverview();
+    }
+  };
+
+  const handleAddKey = async (event) => {
+    event.preventDefault();
+    if (!keyForm.keyTag || !keyForm.serialNumber || !keyForm.propertyId) return;
+
+    const response = await fetch('/api/keys', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(keyForm),
+    });
+
+    if (response.ok) {
+      setKeyForm({ keyTag: '', serialNumber: '', propertyId: activeProperties[0]?.id || '' });
+      loadOverview();
+    }
+  };
+
+  const handleCheckout = async (event) => {
+    event.preventDefault();
+    if (!checkoutForm.keyId || !checkoutForm.personId) return;
+
+    const response = await fetch(`/api/keys/${checkoutForm.keyId}/checkout`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ personId: checkoutForm.personId, notes: checkoutForm.notes }),
+    });
+
+    if (response.ok) {
+      setCheckoutForm({ keyId: '', personId: '', notes: '' });
+      loadOverview();
+    }
+  };
+
+  const handleCheckin = async (keyId) => {
+    const response = await fetch(`/api/keys/${keyId}/checkin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+    });
+
+    if (response.ok) {
+      loadOverview();
+    }
+  };
+
+  const handleArchiveProperty = async (propertyId) => {
+    const response = await fetch(`/api/properties/${propertyId}/archive`, {
+      method: 'PATCH',
+    });
+
+    if (response.ok) {
+      loadOverview();
+    }
+  };
+
+  const handleArchivePerson = async (personId) => {
+    const response = await fetch(`/api/people/${personId}/archive`, {
+      method: 'PATCH',
+    });
+
+    if (response.ok) {
+      loadOverview();
+    }
+  };
+
+  const handleDeletePerson = async (personId) => {
+    const response = await fetch(`/api/people/${personId}`, {
+      method: 'DELETE',
+    });
+
+    if (response.ok) {
+      loadOverview();
+    }
+  };
+
+  const exportFullReport = () => {
+    window.location.href = '/api/reports/full-keys';
+  };
+
+  const exportDailyReport = () => {
+    const date = new Date().toISOString().slice(0, 10);
+    window.location.href = `/api/reports/daily?date=${date}`;
+  };
+
+  if (loading) return <div className="loading-shell">Loading Key-point…</div>;
+
+  return (
+    <div className="app-shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">Estate agency key management</p>
+          <h1>Key-point</h1>
+        </div>
+        <div className="header-actions">
+          <button className="secondary" onClick={exportFullReport}>Export full keys report</button>
+          <button className="primary" onClick={exportDailyReport}>Export daily activity</button>
+        </div>
+      </header>
+
+      <section className="stats-grid">
+        <div className="stat-card">
+          <span>Properties</span>
+          <strong>{activeProperties.length}</strong>
+        </div>
+        <div className="stat-card">
+          <span>People</span>
+          <strong>{activePeople.length}</strong>
+        </div>
+        <div className="stat-card">
+          <span>Registered keys</span>
+          <strong>{activeKeys.length}</strong>
+        </div>
+        <div className="stat-card">
+          <span>Activity entries</span>
+          <strong>{overview.activities.length}</strong>
+        </div>
+      </section>
+
+      <div className="forms-grid">
+        <form className="panel" onSubmit={handleAddProperty}>
+          <h3>Add property</h3>
+          <input
+            value={propertyForm.name}
+            onChange={(event) => setPropertyForm({ ...propertyForm, name: event.target.value })}
+            placeholder="Property name"
+          />
+          <input
+            value={propertyForm.address}
+            onChange={(event) => setPropertyForm({ ...propertyForm, address: event.target.value })}
+            placeholder="Address"
+          />
+          <button type="submit" className="primary">Save property</button>
+        </form>
+
+        <form className="panel" onSubmit={handleAddPerson}>
+          <h3>Add person</h3>
+          <input
+            value={personForm.name}
+            onChange={(event) => setPersonForm({ ...personForm, name: event.target.value })}
+            placeholder="Full name"
+          />
+          <input
+            value={personForm.company}
+            onChange={(event) => setPersonForm({ ...personForm, company: event.target.value })}
+            placeholder="Company name (optional)"
+          />
+          <button type="submit" className="primary">Save person</button>
+        </form>
+
+        <form className="panel" onSubmit={handleAddKey}>
+          <h3>Capture key</h3>
+          <input
+            value={keyForm.keyTag}
+            onChange={(event) => setKeyForm({ ...keyForm, keyTag: event.target.value })}
+            placeholder="Key tag"
+          />
+          <input
+            value={keyForm.serialNumber}
+            onChange={(event) => setKeyForm({ ...keyForm, serialNumber: event.target.value })}
+            placeholder="Key serial number"
+          />
+          <select
+            value={keyForm.propertyId}
+            onChange={(event) => setKeyForm({ ...keyForm, propertyId: event.target.value })}
+          >
+            <option value="">Select property</option>
+            {activeProperties.map((property) => (
+              <option key={property.id} value={property.id}>{property.name}</option>
+            ))}
+          </select>
+          <button type="submit" className="primary">Register key</button>
+        </form>
+      </div>
+
+      <div className="workspace-grid">
+        <section className="panel">
+          <div className="section-heading">
+            <h3>Properties & keys</h3>
+            <span>{activeProperties.length} active</span>
+          </div>
+          <div className="stack">
+            {activeProperties.map((property) => {
+              const propertyKeys = overview.keys.filter(
+                (key) => key.propertyId === property.id && !key.archived
+              );
+
+              return (
+                <div key={property.id} className="property-card">
+                  <div className="property-header">
+                    <div>
+                      <h4>{property.name}</h4>
+                      <small>{property.address}</small>
+                    </div>
+                    <button className="ghost" onClick={() => handleArchiveProperty(property.id)}>
+                      Archive property
+                    </button>
+                  </div>
+
+                  <div className="mini-list">
+                    {propertyKeys.length ? (
+                      propertyKeys.map((key) => {
+                        const holder = getPersonById(overview.people, key.currentHolderId);
+                        return (
+                          <div key={key.id} className="list-row">
+                            <span>{key.keyTag}</span>
+                            <span>{holder ? holder.name : 'Not assigned'}</span>
+                            <span className={`badge ${key.status}`}>{key.status}</span>
+                            {holder ? (
+                              <button className="text-button" onClick={() => handleCheckin(key.id)}>
+                                Check in
+                              </button>
+                            ) : null}
+                          </div>
+                        );
+                      })
+                    ) : (
+                      <p className="empty-state">No registered keys for this property.</p>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="section-heading">
+            <h3>People</h3>
+            <span>{activePeople.length} active</span>
+          </div>
+          <div className="stack">
+            {activePeople.map((person) => (
+              <div key={person.id} className="person-card">
+                <div>
+                  <h4>{person.name}</h4>
+                  <small>{person.company || 'No company recorded'}</small>
+                </div>
+                <div className="card-actions">
+                  <button className="ghost" onClick={() => handleArchivePerson(person.id)}>
+                    Archive
+                  </button>
+                  <button className="danger" onClick={() => handleDeletePerson(person.id)}>
+                    Delete
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      </div>
+
+      <div className="lower-grid">
+        <form className="panel" onSubmit={handleCheckout}>
+          <h3>Checkout key to person</h3>
+          <select
+            value={checkoutForm.keyId}
+            onChange={(event) => setCheckoutForm({ ...checkoutForm, keyId: event.target.value })}
+          >
+            <option value="">Select key</option>
+            {overview.keys.filter((key) => !key.archived).map((key) => (
+              <option key={key.id} value={key.id}>{key.keyTag}</option>
+            ))}
+          </select>
+          <select
+            value={checkoutForm.personId}
+            onChange={(event) => setCheckoutForm({ ...checkoutForm, personId: event.target.value })}
+          >
+            <option value="">Select person</option>
+            {overview.people.filter((person) => !person.archived).map((person) => (
+              <option key={person.id} value={person.id}>{person.name}</option>
+            ))}
+          </select>
+          <textarea
+            value={checkoutForm.notes}
+            onChange={(event) => setCheckoutForm({ ...checkoutForm, notes: event.target.value })}
+            placeholder="Checkout notes"
+          />
+          <button type="submit" className="primary">Allocate key</button>
+        </form>
+
+        <section className="panel">
+          <div className="section-heading">
+            <h3>Key details</h3>
+          </div>
+          <div className="stack detail-stack">
+            {overview.keys.filter((key) => !key.archived).map((key) => {
+              const property = getPropertyById(overview.properties, key.propertyId);
+              const holder = getPersonById(overview.people, key.currentHolderId);
+              return (
+                <div key={key.id} className="key-detail-card">
+                  <div className="detail-row">
+                    <span>Key tag</span>
+                    <strong>{key.keyTag}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Property</span>
+                    <strong>{property?.name || 'Unassigned'}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Current holder</span>
+                    <strong>{holder ? holder.name : 'Available / not assigned'}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Status</span>
+                    <strong>{key.status}</strong>
+                  </div>
+                  <div className="detail-row">
+                    <span>Serial</span>
+                    <strong>{key.serialNumber}</strong>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      </div>
+
+      <section className="panel activity-panel">
+        <div className="section-heading">
+          <h3>Activity history</h3>
+          <span>{overview.activities.length} records</span>
+        </div>
+        <div className="activity-list">
+          {overview.activities.slice(0, 18).map((activity) => (
+            <div key={activity.id} className="activity-item">
+              <div>
+                <strong>{activity.title}</strong>
+                <small>{activity.notes || 'No note provided'}</small>
+              </div>
+              <span>{formatDate(activity.createdAt)}</span>
+            </div>
+          ))}
+        </div>
+      </section>
+    </div>
+  );
+}
+
+export default App;
